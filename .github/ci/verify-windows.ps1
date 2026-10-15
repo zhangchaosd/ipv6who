@@ -24,3 +24,4 @@ Write-Host "connecting from $ip, which is not allowlisted:"
 curl.exe -s -m 5 "http://${ip}:8066/healthz"
 Write-Host "curl exit $LASTEXITCODE"
 if ($LASTEXITCODE -ne 52 -and $LASTEXITCODE -ne 56) { throw 'connection was not dropped' }
+exit 0

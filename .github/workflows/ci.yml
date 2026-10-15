@@ -69,6 +69,7 @@ jobs:
           sudo install -m 755 target/release/ipv6who /usr/local/bin/ipv6who
           sudo install -m 644 dist/config.toml /usr/local/etc/ipv6who/config.toml
           sudo install -m 644 dist/io.github.zhangchaosd.ipv6who.plist /Library/LaunchDaemons/
+          sudo touch /var/log/ipv6who.log && sudo chown nobody /var/log/ipv6who.log
           sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
       - name: Add a test address
         run: sudo ifconfig lo0 inet6 2001:db8::1 prefixlen 128 alias
