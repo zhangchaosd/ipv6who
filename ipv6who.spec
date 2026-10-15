@@ -42,6 +42,7 @@ at the connection level.}
 %install
 %cargo_install
 install -Dpm 0644 dist/%{name}.service %{buildroot}%{_unitdir}/%{name}.service
+sed -i 's|/usr/local/bin/|%{_bindir}/|' %{buildroot}%{_unitdir}/%{name}.service
 install -Dpm 0644 dist/config.toml %{buildroot}%{_sysconfdir}/%{name}/config.toml
 
 %if %{with check}

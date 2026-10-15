@@ -6,7 +6,7 @@ After=network-online.target
 
 [Service]
 Type=exec
-ExecStart=/usr/bin/ipv6who --config /etc/ipv6who/config.toml
+ExecStart=/usr/local/bin/ipv6who --config /etc/ipv6who/config.toml
 Restart=on-failure
 RestartSec=2s
 DynamicUser=yes
