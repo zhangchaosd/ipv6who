@@ -49,7 +49,8 @@ impl Listener for AllowlistListener {
             if self.allow.contains(peer.ip()) {
                 return (stream, peer);
             }
-            tracing::debug!(%peer, "dropped connection from address outside allowlist");
+            let peer_ip = peer.ip().to_canonical();
+            tracing::debug!(%peer_ip, "dropped connection from address outside allowlist");
         }
     }
 
