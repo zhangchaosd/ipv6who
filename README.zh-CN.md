@@ -156,6 +156,34 @@ exclude = ["lo", "docker*", "veth*"]
 配置文件不存在时，ipv6who 使用只允许本机访问的默认配置。可以用 `ipv6who --config <路径> --check-config`
 检查配置文件，用 `ipv6who --dump-addresses` 查看操作系统报告的全部地址，设置 `RUST_LOG=debug` 可记录被拒绝的连接。
 
+## 打包
+
+`ipv6who.spec` 使用 vendored 依赖构建 Fedora RPM：Source0 是 spec 中 `Version`
+对应的 GitHub tag 压缩包，Source1 由 `dist/vendor.sh` 生成。
+[`.copr/Makefile`](.copr/Makefile) 可以从 git 检出直接生成 SRPM，因此 COPR 能直接从仓库构建。
+在 COPR 项目中添加源类型为 **SCM** 的软件包：
+
+| 字段 | 值 |
+| --- | --- |
+| Clone URL | `https://github.com/zhangchaosd/ipv6who.git` |
+| Committish | `main`（或 `v0.1.0` 这样的 tag） |
+| Subdirectory | （留空） |
+| Spec File | `ipv6who.spec` |
+| SRPM build method | `make_srpm` |
+
+为该软件包开启 *Auto-rebuild*，然后在 COPR 的 *Settings → Integrations* 中复制 GitHub webhook 地址，
+在 GitHub 仓库的 *Settings → Webhooks → Add webhook* 中添加（content type 选 `application/json`，
+事件选 *Just the push event*）。之后每次 push 都会重新构建。
+
+源码包从 tag 下载，所以发布时：同时修改 `Cargo.toml` 和 `ipv6who.spec` 中的版本号，添加 `%changelog`
+条目，先推送 tag `v<版本号>`，再把提交推送到 `main`。如果 spec 中的版本还没有 tag，构建会在下载步骤失败。
+在 Fedora 上本地测试（会用 dnf 安装构建工具，需要 root）：
+
+```sh
+sudo make -f .copr/Makefile srpm outdir=/tmp/out spec=ipv6who.spec
+rpmbuild --rebuild /tmp/out/ipv6who-*.src.rpm
+```
+
 ## 许可证
 
 MIT，见 [LICENSE](LICENSE)。
