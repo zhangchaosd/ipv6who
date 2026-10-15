@@ -1,0 +1,10 @@
+[package]
+name = "ipv6who"
+version = "0.1.0"
+edition = "2024"
+description = "A small HTTP service that reports the global IPv6 address of the host, with an IP allowlist"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/zhangchaosd/ipv6who"
+
+[dependencies]
