@@ -1,7 +1,6 @@
 # ipv6who configuration. All keys are optional; defaults are shown.
 
-# Socket addresses to listen on. "[::]" also accepts IPv4 on Linux
-# unless net.ipv6.bindv6only=1.
+# Socket addresses to listen on. "[::]" also accepts IPv4.
 listen = ["[::]:8066"]
 
 # Client networks (CIDR) allowed to connect. Connections from any other
@@ -19,6 +18,8 @@ allow = ["::1/128", "127.0.0.0/8"]
 include_temporary = false
 
 [interfaces]
+# Interface names as the OS shows them: Linux "eth0", macOS "en0",
+# Windows the adapter name such as "Ethernet" or "Wi-Fi".
 # If non-empty, only consider these interfaces. A trailing "*" matches any suffix.
 include = []
 # Never consider these interfaces. Takes precedence over include.

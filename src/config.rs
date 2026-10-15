@@ -3,6 +3,11 @@ use std::{fs, io, net::SocketAddr, path::Path};
 use ipnet::IpNet;
 use serde::Deserialize;
 
+#[cfg(target_os = "macos")]
+pub const DEFAULT_PATH: &str = "/usr/local/etc/ipv6who/config.toml";
+#[cfg(windows)]
+pub const DEFAULT_PATH: &str = r"C:\ProgramData\ipv6who\config.toml";
+#[cfg(not(any(target_os = "macos", windows)))]
 pub const DEFAULT_PATH: &str = "/etc/ipv6who/config.toml";
 
 #[derive(Debug, Clone, Deserialize)]

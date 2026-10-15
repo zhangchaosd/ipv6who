@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+      - run: cargo fmt --check
+        if: runner.os == 'Linux'
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - name: Addresses seen by the OS backend
+        run: cargo run --locked -q -- --dump-addresses
+
+  # The install jobs run the README's install steps verbatim, then check the
+  # running service: a test address, IPv4 via [::], the unprivileged account,
+  # and that a non-allowlisted source is dropped.
+
+  install-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install (README steps)
+        run: |
+          cargo build --release --locked
+          sudo install -Dm755 target/release/ipv6who /usr/local/bin/ipv6who
+          sudo install -Dm644 dist/config.toml /etc/ipv6who/config.toml
+          sudo install -Dm644 dist/ipv6who.service /etc/systemd/system/ipv6who.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now ipv6who
+      - name: Add a test address
+        run: |
+          sudo ip link add ipv6who0 type dummy
+          sudo ip link set ipv6who0 up
+          sudo ip -6 addr add 2001:db8::1/64 dev ipv6who0 nodad
+      - name: Verify
+        run: .github/ci/verify-unix.sh ipv6who "$(hostname -I | awk '{print $1}')"
+      - name: Logs
+        if: always()
+        run: sudo journalctl -u ipv6who --no-pager
+      - name: Uninstall (README steps)
+        run: |
+          sudo systemctl disable --now ipv6who
+          sudo rm -r /usr/local/bin/ipv6who /etc/systemd/system/ipv6who.service /etc/ipv6who
+          sudo systemctl daemon-reload
+          ! pgrep -x ipv6who
+
+  install-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install (README steps)
+        run: |
+          cargo build --release --locked
+          sudo mkdir -p /usr/local/bin /usr/local/etc/ipv6who
+          sudo install -m 755 target/release/ipv6who /usr/local/bin/ipv6who
+          sudo install -m 644 dist/config.toml /usr/local/etc/ipv6who/config.toml
+          sudo install -m 644 dist/io.github.zhangchaosd.ipv6who.plist /Library/LaunchDaemons/
+          sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
+      - name: Add a test address
+        run: sudo ifconfig lo0 inet6 2001:db8::1 prefixlen 128 alias
+      - name: Verify
+        run: .github/ci/verify-unix.sh nobody "$(ipconfig getifaddr "$(route -n get default | awk '/interface:/{print $2}')")"
+      - name: Logs
+        if: always()
+        run: |
+          sudo launchctl print system/io.github.zhangchaosd.ipv6who || true
+          sudo cat /var/log/ipv6who.log || true
+      - name: Uninstall (README steps)
+        run: |
+          sudo launchctl bootout system/io.github.zhangchaosd.ipv6who
+          sudo rm -r /usr/local/bin/ipv6who /usr/local/etc/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
+          sleep 2
+          ! pgrep -x ipv6who
+
+  install-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install (README steps)
+        shell: pwsh
+        run: |
+          cargo build --release --locked
+          New-Item -ItemType Directory -Force "C:\Program Files\ipv6who", "C:\ProgramData\ipv6who\logs" | Out-Null
+          Copy-Item target\release\ipv6who.exe "C:\Program Files\ipv6who\"
+          Copy-Item dist\config.toml C:\ProgramData\ipv6who\
+          icacls C:\ProgramData\ipv6who\logs /grant "*S-1-5-19:(OI)(CI)M"
+          New-Service -Name ipv6who -StartupType Automatic -BinaryPathName '"C:\Program Files\ipv6who\ipv6who.exe" --service --config C:\ProgramData\ipv6who\config.toml --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
+          sc.exe config ipv6who obj= "NT AUTHORITY\LocalService"
+          Start-Service ipv6who
+      - name: Add a test address
+        shell: pwsh
+        run: |
+          $nic = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1
+          New-NetIPAddress -InterfaceIndex $nic.ifIndex -IPAddress 2001:db8::1 -PrefixLength 64 | Out-Null
+      - name: Verify
+        shell: pwsh
+        run: .github/ci/verify-windows.ps1
+      - name: Logs
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Service ipv6who -ErrorAction SilentlyContinue | Format-List *
+          Get-Content C:\ProgramData\ipv6who\logs\ipv6who.log -ErrorAction SilentlyContinue
+      - name: Uninstall (README steps)
+        shell: pwsh
+        run: |
+          Stop-Service ipv6who
+          sc.exe delete ipv6who
+          Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
+          if (Get-Process ipv6who -ErrorAction SilentlyContinue) { throw 'still running' }

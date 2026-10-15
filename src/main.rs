@@ -1,8 +1,17 @@
 mod addrs;
 mod allowlist;
 mod config;
+#[cfg(windows)]
+mod winsvc;
 
-use std::{path::PathBuf, process::ExitCode, sync::Arc};
+use std::{
+    future::Future,
+    io,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    process::ExitCode,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     Json, Router,
@@ -14,7 +23,8 @@ use axum::{
 };
 use clap::Parser;
 use serde_json::json;
-use tokio::{net::TcpListener, sync::watch, task::JoinSet};
+use socket2::{Domain, Protocol, Socket, Type};
+use tokio::{net::TcpListener, runtime::Runtime, sync::watch, task::JoinSet};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
@@ -32,35 +42,47 @@ struct Cli {
     /// Validate the configuration and exit.
     #[arg(long)]
     check_config: bool,
+
+    /// Print every IPv6 address the OS reports, unfiltered, as JSON and exit.
+    #[arg(long)]
+    dump_addresses: bool,
+
+    /// Append logs to this file instead of writing them to stderr.
+    #[arg(long, value_name = "PATH")]
+    log_file: Option<PathBuf>,
+
+    /// Run under the Windows Service Control Manager.
+    #[cfg(windows)]
+    #[arg(long)]
+    service: bool,
 }
 
 struct AppState {
     config: Config,
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let cli = Cli::parse();
-    init_tracing();
+    if let Err(e) = init_tracing(cli.log_file.as_deref()) {
+        eprintln!("ipv6who: cannot open log file: {e}");
+        return ExitCode::FAILURE;
+    }
+    if cli.dump_addresses {
+        return dump_addresses();
+    }
+    #[cfg(windows)]
+    if cli.service {
+        return winsvc::run(cli.config);
+    }
 
-    let config = match Config::load(&cli.config) {
-        Ok((config, found)) => {
-            if !found {
-                tracing::warn!(path = %cli.config.display(), "config file not found, using loopback-only defaults");
-            }
-            config
-        }
-        Err(e) => {
-            tracing::error!(path = %cli.config.display(), "invalid configuration: {e}");
-            return ExitCode::FAILURE;
-        }
+    let Some(config) = load_config(&cli.config) else {
+        return ExitCode::FAILURE;
     };
     if cli.check_config {
         println!("configuration OK");
         return ExitCode::SUCCESS;
     }
-
-    match run(config).await {
+    match runtime().and_then(|rt| rt.block_on(serve(config, shutdown_signal()))) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("{e}");
@@ -69,18 +91,82 @@ async fn main() -> ExitCode {
     }
 }
 
-fn init_tracing() {
+fn init_tracing(log_file: Option<&Path>) -> io::Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    // journald adds its own timestamps.
-    if std::env::var_os("JOURNAL_STREAM").is_some() {
+    if let Some(path) = log_file {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        builder
+            .with_ansi(false)
+            .with_writer(Mutex::new(file))
+            .init();
+    } else if std::env::var_os("JOURNAL_STREAM").is_some() {
+        // journald adds its own timestamps.
         builder.without_time().with_ansi(false).init();
     } else {
         builder.init();
     }
+    Ok(())
 }
 
-async fn run(config: Config) -> std::io::Result<()> {
+fn runtime() -> io::Result<Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+}
+
+fn load_config(path: &Path) -> Option<Config> {
+    match Config::load(path) {
+        Ok((config, found)) => {
+            if !found {
+                tracing::warn!(path = %path.display(), "config file not found, using loopback-only defaults");
+            }
+            Some(config)
+        }
+        Err(e) => {
+            tracing::error!(path = %path.display(), "invalid configuration: {e}");
+            None
+        }
+    }
+}
+
+fn dump_addresses() -> ExitCode {
+    match runtime().and_then(|rt| rt.block_on(addrs::list())) {
+        Ok(all) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&all).expect("serializable")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            tracing::error!("failed to list addresses: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Binds a listener; an unspecified IPv6 address (`[::]`) also accepts IPv4
+/// on every OS (Windows defaults to IPv6-only otherwise).
+fn bind(addr: SocketAddr) -> io::Result<TcpListener> {
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
+    if addr.is_ipv6() && addr.ip().is_unspecified() {
+        socket.set_only_v6(false)?;
+    }
+    // On Windows SO_REUSEADDR would allow port hijacking; elsewhere it only
+    // avoids TIME_WAIT bind failures on restart.
+    #[cfg(not(windows))]
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    TcpListener::from_std(socket.into())
+}
+
+async fn serve(config: Config, shutdown: impl Future<Output = ()>) -> io::Result<()> {
     let allow = Allowlist::new(&config.allow);
     if allow.is_empty() {
         tracing::warn!("`allow` is empty: every connection will be rejected");
@@ -91,9 +177,8 @@ async fn run(config: Config) -> std::io::Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let mut servers = JoinSet::new();
     for addr in listen {
-        let listener = TcpListener::bind(addr)
-            .await
-            .map_err(|e| std::io::Error::new(e.kind(), format!("failed to bind {addr}: {e}")))?;
+        let listener = bind(addr)
+            .map_err(|e| io::Error::new(e.kind(), format!("failed to bind {addr}: {e}")))?;
         tracing::info!(%addr, "listening");
         let mut rx = shutdown_rx.clone();
         let server = axum::serve(AllowlistListener::new(listener, allow.clone()), app.clone())
@@ -105,18 +190,18 @@ async fn run(config: Config) -> std::io::Result<()> {
     drop(shutdown_rx);
 
     tokio::select! {
-        () = shutdown_signal() => {
+        () = shutdown => {
             tracing::info!("shutting down");
             let _ = shutdown_tx.send(());
         }
         Some(res) = servers.join_next() => {
             // A server stopped on its own; take the others down with it.
             let _ = shutdown_tx.send(());
-            res.map_err(std::io::Error::other)??;
+            res.map_err(io::Error::other)??;
         }
     }
     while let Some(res) = servers.join_next().await {
-        res.map_err(std::io::Error::other)??;
+        res.map_err(io::Error::other)??;
     }
     Ok(())
 }

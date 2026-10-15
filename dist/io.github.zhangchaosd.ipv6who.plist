@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.zhangchaosd.ipv6who</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/ipv6who</string>
+		<string>--config</string>
+		<string>/usr/local/etc/ipv6who/config.toml</string>
+	</array>
+	<!-- Run unprivileged. -->
+	<key>UserName</key>
+	<string>nobody</string>
+	<key>GroupName</key>
+	<string>nobody</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/var/log/ipv6who.log</string>
+</dict>
+</plist>
