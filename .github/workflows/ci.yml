@@ -42,7 +42,7 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           for _ in $(seq 1 30); do [ -S "/run/user/$(id -u)/bus" ] && break; sleep 1; done
       - name: Install (README steps, local build instead of the download)
-        run: .github/ci/readme-linux.sh target/release/ipv6who
+        run: .github/ci/readme-install.sh '### Linux' target/release/ipv6who ipv6who
       - name: Change options (README)
         run: |
           sed -i 's|^ExecStart=.*|& --include-temporary|' ~/ipv6who/ipv6who.service
@@ -55,7 +55,9 @@ jobs:
           sudo ip link set ipv6who0 up
           sudo ip -6 addr add 2001:db8::1/64 dev ipv6who0 nodad
       - name: Verify
-        run: .github/ci/verify-unix.sh "$USER" "$(hostname -I | awk '{print $1}')"
+        run: |
+          .github/ci/verify-unix.sh "$USER" "$(hostname -I | awk '{print $1}')"
+          grep -q listening ~/ipv6who/ipv6who.log
       - name: Logs
         if: always()
         run: cat -v ~/ipv6who/ipv6who.log || true
@@ -69,35 +71,32 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install (README steps)
-        run: |
-          cargo build --release --locked
-          sudo mkdir -p /usr/local/bin
-          sudo install -m 755 target/release/ipv6who /usr/local/bin/ipv6who
-          sudo install -m 644 dist/io.github.zhangchaosd.ipv6who.plist /Library/LaunchDaemons/
-          sudo touch /var/log/ipv6who.log && sudo chown nobody /var/log/ipv6who.log
-          sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
+      - run: cargo build --release --locked
+      - name: Install (README steps, local build instead of the download)
+        run: .github/ci/readme-install.sh '### macOS' target/release/ipv6who '~/.local/bin/ipv6who'
       - name: Change options (README)
         run: |
-          sudo plutil -insert ProgramArguments.5 -string --include-temporary /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
-          sudo launchctl bootout system/io.github.zhangchaosd.ipv6who
+          plutil -insert ProgramArguments.5 -string --include-temporary ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist
+          launchctl bootout gui/$(id -u)/io.github.zhangchaosd.ipv6who
           sleep 2
-          sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
+          launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist
           sleep 1
           pgrep -lf ipv6who | grep -- --include-temporary
       - name: Add a test address
         run: sudo ifconfig lo0 inet6 2001:db8::1 prefixlen 128 alias
       - name: Verify
-        run: .github/ci/verify-unix.sh nobody "$(ipconfig getifaddr "$(route -n get default | awk '/interface:/{print $2}')")"
+        run: |
+          .github/ci/verify-unix.sh "$USER" "$(ipconfig getifaddr "$(route -n get default | awk '/interface:/{print $2}')")"
+          grep -q listening ~/Library/Logs/ipv6who.log
       - name: Logs
         if: always()
         run: |
-          sudo launchctl print system/io.github.zhangchaosd.ipv6who || true
-          sudo cat /var/log/ipv6who.log || true
+          launchctl print gui/$(id -u)/io.github.zhangchaosd.ipv6who || true
+          cat ~/Library/Logs/ipv6who.log || true
       - name: Uninstall (README steps)
         run: |
-          sudo launchctl bootout system/io.github.zhangchaosd.ipv6who
-          sudo rm /usr/local/bin/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
+          launchctl bootout gui/$(id -u)/io.github.zhangchaosd.ipv6who
+          rm ~/.local/bin/ipv6who ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist ~/Library/Logs/ipv6who.log
           sleep 2
           ! pgrep -x ipv6who
 

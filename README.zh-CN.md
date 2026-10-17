@@ -13,10 +13,10 @@
 没有配置文件：所有设置都通过服务定义里的命令行参数传入（见[参数](#参数)）。默认监听 8066 端口，
 只接受本机访问；请把允许查询的网段加入 `--allow`，如果客户端在其他机器上，还需要在防火墙中放行 TCP 8066 端口。
 
-Linux 上直接下载预编译的静态二进制（x86_64 或 aarch64），以 systemd 用户服务运行：
-不需要 root，也不需要 Rust 工具链。macOS 和 Windows 上使用 Rust 1.88 或更新版本
+Linux 和 macOS 上直接从最新 release 下载预编译二进制，以当前用户身份作为服务运行：
+不需要 root，也不需要 Rust 工具链。Windows 上使用 Rust 1.88 或更新版本
 （[rustup](https://rustup.rs)）从源码构建并安装为系统服务；管理员权限只用于复制文件和注册服务，
-服务本身以非特权账户运行。
+服务本身以非特权的 `LocalService` 账户运行。
 
 ### Linux（systemd 用户服务）
 
@@ -61,31 +61,54 @@ rm -rf ~/ipv6who
 
 如需加固的系统级服务，可参考 [dist/ipv6who.service](dist/ipv6who.service)（`DynamicUser=yes`）。
 
-### macOS（launchd）
+### macOS（launchd 用户代理）
 
-需要先安装 Xcode 命令行工具（`xcode-select --install`）。
+二进制安装到 `~/.local/bin`，以当前用户身份运行，不需要 sudo：
 
 ```sh
-git clone https://github.com/zhangchaosd/ipv6who.git
-cd ipv6who
-cargo build --release --locked
-sudo mkdir -p /usr/local/bin
-sudo install -m 755 target/release/ipv6who /usr/local/bin/ipv6who
-sudo install -m 644 dist/io.github.zhangchaosd.ipv6who.plist /Library/LaunchDaemons/
-sudo touch /var/log/ipv6who.log && sudo chown nobody /var/log/ipv6who.log
-sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
+mkdir -p ~/.local/bin ~/Library/LaunchAgents
+curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/latest/download/ipv6who-macos-universal.tar.gz | tar -xz -C ~/.local/bin --strip-components=1 ipv6who-macos-universal/ipv6who
+cat > ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.zhangchaosd.ipv6who</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>$HOME/.local/bin/ipv6who</string>
+		<string>--listen</string>
+		<string>[::]:8066</string>
+		<string>--allow</string>
+		<string>::1/128,127.0.0.0/8</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>$HOME/Library/Logs/ipv6who.log</string>
+	<key>StandardErrorPath</key>
+	<string>$HOME/Library/Logs/ipv6who.log</string>
+</dict>
+</plist>
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
-修改参数：编辑 `/Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist` 中的 `ProgramArguments`，
-然后执行 `sudo launchctl bootout system/io.github.zhangchaosd.ipv6who`，再执行上面的 `bootstrap` 那一行重新加载。
-日志：`/var/log/ipv6who.log`（launchd 以服务用户身份打开该文件，所以需要 `chown`）。服务以 `nobody` 用户运行。
+修改参数：编辑 `~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist` 中的 `ProgramArguments`，
+然后执行 `launchctl bootout gui/$(id -u)/io.github.zhangchaosd.ipv6who`，再执行上面的 `bootstrap` 那一行重新加载。
+日志：`~/Library/Logs/ipv6who.log`。用户代理只在你登录后运行；如果这台 Mac 没有开启自动登录，
+请使用系统级守护进程 [dist/io.github.zhangchaosd.ipv6who.plist](dist/io.github.zhangchaosd.ipv6who.plist)
+（以 `nobody` 运行，需要 sudo）。
 
 卸载：
 
 ```sh
-sudo launchctl bootout system/io.github.zhangchaosd.ipv6who
-sudo rm /usr/local/bin/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
+launchctl bootout gui/$(id -u)/io.github.zhangchaosd.ipv6who
+rm ~/.local/bin/ipv6who ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist ~/Library/Logs/ipv6who.log
 ```
 
 ### Windows（服务）

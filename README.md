@@ -18,12 +18,12 @@ definition (see [Options](#options)). The defaults listen on port 8066 and only
 accept clients on this machine, so add the networks that may query the service
 to `--allow`, and open TCP port 8066 in the firewall if clients are remote.
 
-On Linux, download the prebuilt static binary (x86_64 or aarch64) and run it
-as a systemd user service: no root and no Rust toolchain needed. On macOS and
-Windows, build from source with Rust 1.88 or newer
-([rustup](https://rustup.rs)) and install it as a system service; administrator
-rights are only needed to copy files and register it, and the service itself
-runs as an unprivileged account.
+On Linux and macOS, download the prebuilt binary from the latest release and
+run it as a service under your own user: no root and no Rust toolchain needed.
+On Windows, build from source with Rust 1.88 or newer
+([rustup](https://rustup.rs)) and install it as a system service;
+administrator rights are only needed to copy files and register it, and the
+service itself runs as the unprivileged `LocalService` account.
 
 ### Linux (systemd user service)
 
@@ -69,33 +69,56 @@ rm -rf ~/ipv6who
 For a hardened system-wide service instead, see
 [dist/ipv6who.service](dist/ipv6who.service) (`DynamicUser=yes`).
 
-### macOS (launchd)
+### macOS (launchd user agent)
 
-Requires the Xcode Command Line Tools (`xcode-select --install`).
+The binary goes to `~/.local/bin` and runs as your own user, no sudo needed:
 
 ```sh
-git clone https://github.com/zhangchaosd/ipv6who.git
-cd ipv6who
-cargo build --release --locked
-sudo mkdir -p /usr/local/bin
-sudo install -m 755 target/release/ipv6who /usr/local/bin/ipv6who
-sudo install -m 644 dist/io.github.zhangchaosd.ipv6who.plist /Library/LaunchDaemons/
-sudo touch /var/log/ipv6who.log && sudo chown nobody /var/log/ipv6who.log
-sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
+mkdir -p ~/.local/bin ~/Library/LaunchAgents
+curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/latest/download/ipv6who-macos-universal.tar.gz | tar -xz -C ~/.local/bin --strip-components=1 ipv6who-macos-universal/ipv6who
+cat > ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.zhangchaosd.ipv6who</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>$HOME/.local/bin/ipv6who</string>
+		<string>--listen</string>
+		<string>[::]:8066</string>
+		<string>--allow</string>
+		<string>::1/128,127.0.0.0/8</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>$HOME/Library/Logs/ipv6who.log</string>
+	<key>StandardErrorPath</key>
+	<string>$HOME/Library/Logs/ipv6who.log</string>
+</dict>
+</plist>
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
 To change options, edit `ProgramArguments` in
-`/Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist`, then reload it with
-`sudo launchctl bootout system/io.github.zhangchaosd.ipv6who` followed by the
-`bootstrap` line above. Logs: `/var/log/ipv6who.log` (launchd opens it as the
-service user, hence the `chown`). Runs as the `nobody` user.
+`~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist`, then reload it with
+`launchctl bootout gui/$(id -u)/io.github.zhangchaosd.ipv6who` followed by the
+`bootstrap` line above. Logs: `~/Library/Logs/ipv6who.log`. A user agent runs
+while you are logged in; for a Mac without automatic login, use the system-wide
+daemon in [dist/io.github.zhangchaosd.ipv6who.plist](dist/io.github.zhangchaosd.ipv6who.plist)
+(runs as `nobody`, needs sudo).
 
 Uninstall:
 
 ```sh
-sudo launchctl bootout system/io.github.zhangchaosd.ipv6who
-sudo rm /usr/local/bin/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
+launchctl bootout gui/$(id -u)/io.github.zhangchaosd.ipv6who
+rm ~/.local/bin/ipv6who ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.plist ~/Library/Logs/ipv6who.log
 ```
 
 ### Windows (service)

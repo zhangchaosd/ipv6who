@@ -29,6 +29,8 @@
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
+	<key>StandardOutPath</key>
+	<string>/var/log/ipv6who.log</string>
 	<key>StandardErrorPath</key>
 	<string>/var/log/ipv6who.log</string>
 </dict>
