@@ -36,13 +36,8 @@ use crate::{
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
-    /// Path to the configuration file.
-    #[arg(short, long, default_value = config::DEFAULT_PATH)]
-    config: PathBuf,
-
-    /// Validate the configuration and exit.
-    #[arg(long)]
-    check_config: bool,
+    #[command(flatten)]
+    config: Config,
 
     /// Print every IPv6 address the OS reports, unfiltered, as JSON and exit.
     #[arg(long)]
@@ -86,14 +81,7 @@ fn main() -> ExitCode {
         return winsvc::run(cli.config);
     }
 
-    let Some(config) = load_config(&cli.config) else {
-        return ExitCode::FAILURE;
-    };
-    if cli.check_config {
-        println!("configuration OK");
-        return ExitCode::SUCCESS;
-    }
-    match runtime().and_then(|rt| rt.block_on(serve(config, shutdown_signal()))) {
+    match runtime().and_then(|rt| rt.block_on(serve(cli.config, shutdown_signal()))) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("{e}");
@@ -130,21 +118,6 @@ fn runtime() -> io::Result<Runtime> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-}
-
-fn load_config(path: &Path) -> Option<Config> {
-    match Config::load(path) {
-        Ok((config, found)) => {
-            if !found {
-                tracing::warn!(path = %path.display(), "config file not found, using loopback-only defaults");
-            }
-            Some(config)
-        }
-        Err(e) => {
-            tracing::error!(path = %path.display(), "invalid configuration: {e}");
-            None
-        }
-    }
 }
 
 fn dump_addresses() -> ExitCode {

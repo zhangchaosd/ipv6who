@@ -10,13 +10,13 @@
 
 ## 安装
 
+没有配置文件：所有设置都通过服务定义里的命令行参数传入（见[参数](#参数)）。默认监听 8066 端口，
+只接受本机访问；请把允许查询的网段加入 `--allow`，如果客户端在其他机器上，还需要在防火墙中放行 TCP 8066 端口。
+
 Linux 上直接下载预编译的静态二进制（x86_64 或 aarch64），以 systemd 用户服务运行：
 不需要 root，也不需要 Rust 工具链。macOS 和 Windows 上使用 Rust 1.88 或更新版本
 （[rustup](https://rustup.rs)）从源码构建并安装为系统服务；管理员权限只用于复制文件和注册服务，
-服务本身以非特权账户运行。修改配置后需要重启服务。
-
-默认配置只接受本机访问：把允许查询的网段加入 `allow`（见[配置](#配置)），
-如果客户端在其他机器上，还需要在防火墙中放行 TCP 8066 端口。
+服务本身以非特权账户运行。
 
 ### Linux（systemd 用户服务）
 
@@ -24,12 +24,7 @@ Linux 上直接下载预编译的静态二进制（x86_64 或 aarch64），以 s
 
 ```sh
 mkdir -p ~/ipv6who && cd ~/ipv6who
-curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/download/v0.2.0/ipv6who-0.2.0-linux-$(uname -m).tar.gz | tar -xz --strip-components=1 ipv6who-0.2.0-linux-$(uname -m)/ipv6who
-cat > config.toml <<'EOF'
-listen = ["[::]:8066"]
-# 允许查询的客户端网段，在这里加入你的局域网或前缀。
-allow = ["::1/128", "127.0.0.0/8"]
-EOF
+curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/latest/download/ipv6who-linux-$(uname -m).tar.gz | tar -xz --strip-components=1 ipv6who-linux-$(uname -m)/ipv6who
 cat > ipv6who.service <<'EOF'
 [Unit]
 Description=Report this host's global IPv6 address over HTTP
@@ -38,8 +33,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/ipv6who
-ExecStart=%h/ipv6who/ipv6who --config %h/ipv6who/config.toml
-Environment=NO_COLOR=1
+ExecStart=%h/ipv6who/ipv6who --listen [::]:8066 --allow ::1/128,127.0.0.0/8
 Restart=on-failure
 RestartSec=5
 UMask=0077
@@ -53,7 +47,8 @@ systemctl --user enable --now ~/ipv6who/ipv6who.service
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
-编辑 `~/ipv6who/config.toml` 后执行 `systemctl --user restart ipv6who`。
+修改参数：编辑 `~/ipv6who/ipv6who.service` 中的 `ExecStart=` 行，然后执行
+`systemctl --user daemon-reload && systemctl --user restart ipv6who`。
 日志：`~/ipv6who/ipv6who.log`。如需开机后无需登录即自动运行，执行 `loginctl enable-linger`
 （部分系统需要 `sudo loginctl enable-linger $USER`）。
 
@@ -74,24 +69,23 @@ rm -rf ~/ipv6who
 git clone https://github.com/zhangchaosd/ipv6who.git
 cd ipv6who
 cargo build --release --locked
-sudo mkdir -p /usr/local/bin /usr/local/etc/ipv6who
+sudo mkdir -p /usr/local/bin
 sudo install -m 755 target/release/ipv6who /usr/local/bin/ipv6who
-sudo install -m 644 dist/config.toml /usr/local/etc/ipv6who/config.toml
 sudo install -m 644 dist/io.github.zhangchaosd.ipv6who.plist /Library/LaunchDaemons/
 sudo touch /var/log/ipv6who.log && sudo chown nobody /var/log/ipv6who.log
 sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
-配置：`/usr/local/etc/ipv6who/config.toml`。
-重启：`sudo launchctl kickstart -k system/io.github.zhangchaosd.ipv6who`。
+修改参数：编辑 `/Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist` 中的 `ProgramArguments`，
+然后执行 `sudo launchctl bootout system/io.github.zhangchaosd.ipv6who`，再执行上面的 `bootstrap` 那一行重新加载。
 日志：`/var/log/ipv6who.log`（launchd 以服务用户身份打开该文件，所以需要 `chown`）。服务以 `nobody` 用户运行。
 
 卸载：
 
 ```sh
 sudo launchctl bootout system/io.github.zhangchaosd.ipv6who
-sudo rm -r /usr/local/bin/ipv6who /usr/local/etc/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
+sudo rm /usr/local/bin/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
 ```
 
 ### Windows（服务）
@@ -105,15 +99,20 @@ cd ipv6who
 cargo build --release --locked
 New-Item -ItemType Directory -Force "C:\Program Files\ipv6who", "C:\ProgramData\ipv6who\logs" | Out-Null
 Copy-Item target\release\ipv6who.exe "C:\Program Files\ipv6who\"
-Copy-Item dist\config.toml C:\ProgramData\ipv6who\
 icacls C:\ProgramData\ipv6who\logs /grant "*S-1-5-19:(OI)(CI)M"
-New-Service -Name ipv6who -StartupType Automatic -BinaryPathName '"C:\Program Files\ipv6who\ipv6who.exe" --service --config C:\ProgramData\ipv6who\config.toml --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
+New-Service -Name ipv6who -StartupType Automatic -BinaryPathName '"C:\Program Files\ipv6who\ipv6who.exe" --service --listen [::]:8066 --allow ::1/128,127.0.0.0/8 --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
 sc.exe config ipv6who obj= "NT AUTHORITY\LocalService"
 Start-Service ipv6who
 curl.exe -s "http://[::1]:8066/v1/ipv6"
 ```
 
-配置：`C:\ProgramData\ipv6who\config.toml`。重启：`Restart-Service ipv6who`。
+修改参数：改写服务的命令行后重启，例如：
+
+```powershell
+Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\ipv6who ImagePath '"C:\Program Files\ipv6who\ipv6who.exe" --service --listen [::]:8066 --allow ::1/128,127.0.0.0/8,192.168.1.0/24 --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
+Restart-Service ipv6who
+```
+
 日志：`C:\ProgramData\ipv6who\logs\ipv6who.log`。服务以内置的 `LocalService` 账户（`S-1-5-19`）运行，
 只对日志目录有写权限。
 防火墙：`New-NetFirewallRule -DisplayName ipv6who -Direction Inbound -Protocol TCP -LocalPort 8066 -Action Allow`。
@@ -125,8 +124,6 @@ Stop-Service ipv6who
 sc.exe delete ipv6who
 Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 ```
-
-在 macOS 和 Windows 上，由于服务账户需要读取配置文件，该文件对本机所有用户可读；如果设置了 `token`，请注意这一点。
 
 ## 接口
 
@@ -169,25 +166,26 @@ Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 
 `GET /healthz` 返回 `ok`（不需要 token）。
 
-## 配置
+## 参数
 
-全部选项见 [dist/config.toml](dist/config.toml)：
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `-l, --listen <ADDR>` | `[::]:8066` | 监听地址，可重复指定多个。`[::]` 同时接受 IPv4。 |
+| `-a, --allow <CIDR>` | `::1/128,127.0.0.0/8` | 允许连接的客户端网段，可重复指定或用逗号分隔。 |
+| `--token <TOKEN>` | 无 | 访问 `/v1/*` 需要的 Bearer token；也可通过 `IPV6WHO_TOKEN` 环境变量传入。 |
+| `--include-temporary` | 关闭 | 同时返回隐私扩展产生的临时地址。 |
+| `--interface <NAME>` | 全部 | 只考虑这些网卡（如 `eth0`、`en0`、`Ethernet`）；末尾的 `*` 匹配任意后缀。 |
+| `--exclude-interface <NAME>` | 无 | 排除这些网卡，优先于 `--interface`。 |
+| `--log-file <PATH>` | stderr | 把日志追加写入文件。 |
+| `--dump-addresses` | | 打印操作系统报告的全部 IPv6 地址（不过滤）后退出。 |
 
-```toml
-listen = ["[::]:8066"]
-allow = ["::1/128", "127.0.0.0/8", "2001:db8:1234::/48"]
-# token = "change-me"
-include_temporary = false
+来自 `--allow` 之外地址的连接会在 `accept()` 之后立即关闭，不会解析任何 HTTP 内容；
+IPv4 客户端按 IPv4 规则匹配。设置 `RUST_LOG=debug` 可记录被拒绝的连接。
 
-[interfaces]
-include = []
-exclude = ["lo", "docker*", "veth*"]
-```
-
-来自 `allow` 之外地址的连接会在 `accept()` 之后立即关闭，不会解析任何 HTTP 内容；
-`[::]` 同时接受 IPv4 客户端，按 IPv4 规则匹配。网卡名称以操作系统显示的为准（如 `eth0`、`en0`、`Ethernet`）。
-配置文件不存在时，ipv6who 使用只允许本机访问的默认配置。可以用 `ipv6who --config <路径> --check-config`
-检查配置文件，用 `ipv6who --dump-addresses` 查看操作系统报告的全部地址，设置 `RUST_LOG=debug` 可记录被拒绝的连接。
+建议通过 `IPV6WHO_TOKEN` 环境变量而不是 `--token` 传入 token，因为命令行对本机所有用户可见：
+在 systemd unit 中加入 `Environment=IPV6WHO_TOKEN=...`（并 `chmod 600`），在 launchd plist 中启用注释掉的
+`EnvironmentVariables` 段，Windows 上执行
+`Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\ipv6who Environment -Type MultiString -Value 'IPV6WHO_TOKEN=...'`。
 
 ## 许可证
 

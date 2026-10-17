@@ -6,7 +6,9 @@ After=network-online.target
 
 [Service]
 Type=exec
-ExecStart=/usr/local/bin/ipv6who --config /etc/ipv6who/config.toml
+# Options: see `ipv6who --help`. Add client networks to --allow.
+ExecStart=/usr/local/bin/ipv6who --listen [::]:8066 --allow ::1/128,127.0.0.0/8
+# Environment=IPV6WHO_TOKEN=change-me
 Restart=on-failure
 RestartSec=2s
 DynamicUser=yes

@@ -4,8 +4,8 @@
 set -euo pipefail
 bin=$1
 label=$2
-version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
-name="ipv6who-${version}-${label}"
+# Unversioned names so releases/latest/download/<name> always works.
+name="ipv6who-${label}"
 mkdir -p "out/$name"
 cp "$bin" LICENSE README.md README.zh-CN.md "out/$name/"
 cp -r dist "out/$name/dist"

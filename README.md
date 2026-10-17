@@ -13,16 +13,17 @@ rtnetlink on Linux, `getifaddrs` and the in6 ioctls on macOS,
 
 ## Install
 
+There is no config file: every setting is a command-line flag in the service
+definition (see [Options](#options)). The defaults listen on port 8066 and only
+accept clients on this machine, so add the networks that may query the service
+to `--allow`, and open TCP port 8066 in the firewall if clients are remote.
+
 On Linux, download the prebuilt static binary (x86_64 or aarch64) and run it
 as a systemd user service: no root and no Rust toolchain needed. On macOS and
 Windows, build from source with Rust 1.88 or newer
 ([rustup](https://rustup.rs)) and install it as a system service; administrator
 rights are only needed to copy files and register it, and the service itself
-runs as an unprivileged account. After editing the config, restart the service.
-
-The default config only accepts clients on this machine: add the networks
-that may query the service to `allow` (see [Configuration](#configuration)),
-and open TCP port 8066 in the firewall if clients are remote.
+runs as an unprivileged account.
 
 ### Linux (systemd user service)
 
@@ -30,12 +31,7 @@ Everything lives in `~/ipv6who` and runs as your own user:
 
 ```sh
 mkdir -p ~/ipv6who && cd ~/ipv6who
-curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/download/v0.2.0/ipv6who-0.2.0-linux-$(uname -m).tar.gz | tar -xz --strip-components=1 ipv6who-0.2.0-linux-$(uname -m)/ipv6who
-cat > config.toml <<'EOF'
-listen = ["[::]:8066"]
-# Client networks allowed to query the service; add your LAN or prefix here.
-allow = ["::1/128", "127.0.0.0/8"]
-EOF
+curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/latest/download/ipv6who-linux-$(uname -m).tar.gz | tar -xz --strip-components=1 ipv6who-linux-$(uname -m)/ipv6who
 cat > ipv6who.service <<'EOF'
 [Unit]
 Description=Report this host's global IPv6 address over HTTP
@@ -44,8 +40,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/ipv6who
-ExecStart=%h/ipv6who/ipv6who --config %h/ipv6who/config.toml
-Environment=NO_COLOR=1
+ExecStart=%h/ipv6who/ipv6who --listen [::]:8066 --allow ::1/128,127.0.0.0/8
 Restart=on-failure
 RestartSec=5
 UMask=0077
@@ -59,7 +54,8 @@ systemctl --user enable --now ~/ipv6who/ipv6who.service
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
-Edit `~/ipv6who/config.toml`, then `systemctl --user restart ipv6who`.
+To change options, edit the `ExecStart=` line in `~/ipv6who/ipv6who.service`,
+then `systemctl --user daemon-reload && systemctl --user restart ipv6who`.
 Logs: `~/ipv6who/ipv6who.log`. To start at boot without logging in, run
 `loginctl enable-linger` (some systems require `sudo loginctl enable-linger $USER`).
 
@@ -81,24 +77,25 @@ Requires the Xcode Command Line Tools (`xcode-select --install`).
 git clone https://github.com/zhangchaosd/ipv6who.git
 cd ipv6who
 cargo build --release --locked
-sudo mkdir -p /usr/local/bin /usr/local/etc/ipv6who
+sudo mkdir -p /usr/local/bin
 sudo install -m 755 target/release/ipv6who /usr/local/bin/ipv6who
-sudo install -m 644 dist/config.toml /usr/local/etc/ipv6who/config.toml
 sudo install -m 644 dist/io.github.zhangchaosd.ipv6who.plist /Library/LaunchDaemons/
 sudo touch /var/log/ipv6who.log && sudo chown nobody /var/log/ipv6who.log
 sudo launchctl bootstrap system /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
-Config: `/usr/local/etc/ipv6who/config.toml`.
-Restart: `sudo launchctl kickstart -k system/io.github.zhangchaosd.ipv6who`.
-Logs: `/var/log/ipv6who.log` (launchd opens it as the service user, hence the `chown`). Runs as the `nobody` user.
+To change options, edit `ProgramArguments` in
+`/Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist`, then reload it with
+`sudo launchctl bootout system/io.github.zhangchaosd.ipv6who` followed by the
+`bootstrap` line above. Logs: `/var/log/ipv6who.log` (launchd opens it as the
+service user, hence the `chown`). Runs as the `nobody` user.
 
 Uninstall:
 
 ```sh
 sudo launchctl bootout system/io.github.zhangchaosd.ipv6who
-sudo rm -r /usr/local/bin/ipv6who /usr/local/etc/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
+sudo rm /usr/local/bin/ipv6who /Library/LaunchDaemons/io.github.zhangchaosd.ipv6who.plist /var/log/ipv6who.log
 ```
 
 ### Windows (service)
@@ -112,15 +109,20 @@ cd ipv6who
 cargo build --release --locked
 New-Item -ItemType Directory -Force "C:\Program Files\ipv6who", "C:\ProgramData\ipv6who\logs" | Out-Null
 Copy-Item target\release\ipv6who.exe "C:\Program Files\ipv6who\"
-Copy-Item dist\config.toml C:\ProgramData\ipv6who\
 icacls C:\ProgramData\ipv6who\logs /grant "*S-1-5-19:(OI)(CI)M"
-New-Service -Name ipv6who -StartupType Automatic -BinaryPathName '"C:\Program Files\ipv6who\ipv6who.exe" --service --config C:\ProgramData\ipv6who\config.toml --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
+New-Service -Name ipv6who -StartupType Automatic -BinaryPathName '"C:\Program Files\ipv6who\ipv6who.exe" --service --listen [::]:8066 --allow ::1/128,127.0.0.0/8 --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
 sc.exe config ipv6who obj= "NT AUTHORITY\LocalService"
 Start-Service ipv6who
 curl.exe -s "http://[::1]:8066/v1/ipv6"
 ```
 
-Config: `C:\ProgramData\ipv6who\config.toml`. Restart: `Restart-Service ipv6who`.
+To change options, rewrite the service command line and restart, e.g.:
+
+```powershell
+Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\ipv6who ImagePath '"C:\Program Files\ipv6who\ipv6who.exe" --service --listen [::]:8066 --allow ::1/128,127.0.0.0/8,192.168.1.0/24 --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
+Restart-Service ipv6who
+```
+
 Logs: `C:\ProgramData\ipv6who\logs\ipv6who.log`. Runs as the built-in
 `LocalService` account (`S-1-5-19`), which may only write to the logs folder.
 Firewall: `New-NetFirewallRule -DisplayName ipv6who -Direction Inbound -Protocol TCP -LocalPort 8066 -Action Allow`.
@@ -132,10 +134,6 @@ Stop-Service ipv6who
 sc.exe delete ipv6who
 Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 ```
-
-On macOS and Windows the config file must be readable by the service
-account, so it is readable by all local users; keep that in mind if you set a
-`token`.
 
 ## API
 
@@ -181,28 +179,28 @@ account, so it is readable by all local users; keep that in mind if you set a
 
 `GET /healthz` returns `ok` (no token required).
 
-## Configuration
+## Options
 
-See [dist/config.toml](dist/config.toml) for every option:
+| Flag | Default | Meaning |
+|---|---|---|
+| `-l, --listen <ADDR>` | `[::]:8066` | Address to listen on; repeat for several. `[::]` also accepts IPv4. |
+| `-a, --allow <CIDR>` | `::1/128,127.0.0.0/8` | Client networks allowed to connect; repeat or separate with commas. |
+| `--token <TOKEN>` | none | Bearer token required for `/v1/*`; also read from `IPV6WHO_TOKEN`. |
+| `--include-temporary` | off | Also report privacy-extension temporary addresses. |
+| `--interface <NAME>` | all | Only consider these interfaces (`eth0`, `en0`, `Ethernet`); a trailing `*` matches any suffix. |
+| `--exclude-interface <NAME>` | none | Never consider these interfaces; wins over `--interface`. |
+| `--log-file <PATH>` | stderr | Append logs to a file. |
+| `--dump-addresses` | | Print every IPv6 address the OS reports, unfiltered, and exit. |
 
-```toml
-listen = ["[::]:8066"]
-allow = ["::1/128", "127.0.0.0/8", "2001:db8:1234::/48"]
-# token = "change-me"
-include_temporary = false
+Connections from addresses outside `--allow` are closed right after
+`accept()`, before any HTTP is parsed; IPv4 clients are matched against IPv4
+rules. Set `RUST_LOG=debug` to log rejected connections.
 
-[interfaces]
-include = []
-exclude = ["lo", "docker*", "veth*"]
-```
-
-Connections from addresses outside `allow` are closed right after `accept()`,
-before any HTTP is parsed; `[::]` also accepts IPv4 clients, which are matched
-against IPv4 rules. Interface names are as the OS shows them (`eth0`, `en0`,
-`Ethernet`). If the file is missing, ipv6who starts with loopback-only
-defaults. Check a file with `ipv6who --config <path> --check-config`, list
-what the OS reports with `ipv6who --dump-addresses`, and set `RUST_LOG=debug`
-to log rejected connections.
+Pass the token through the `IPV6WHO_TOKEN` environment variable rather than
+`--token`, because command lines are visible to every local user: add
+`Environment=IPV6WHO_TOKEN=...` to the systemd unit (and `chmod 600` it), the
+commented `EnvironmentVariables` block in the launchd plist, or on Windows
+`Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\ipv6who Environment -Type MultiString -Value 'IPV6WHO_TOKEN=...'`.
 
 ## License
 

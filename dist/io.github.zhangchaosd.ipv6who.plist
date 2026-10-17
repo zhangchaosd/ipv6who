@@ -7,9 +7,19 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/local/bin/ipv6who</string>
-		<string>--config</string>
-		<string>/usr/local/etc/ipv6who/config.toml</string>
+		<string>--listen</string>
+		<string>[::]:8066</string>
+		<!-- Client networks allowed to connect; comma separated. -->
+		<string>--allow</string>
+		<string>::1/128,127.0.0.0/8</string>
 	</array>
+	<!-- Optional bearer token:
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>IPV6WHO_TOKEN</key>
+		<string>change-me</string>
+	</dict>
+	-->
 	<!-- Run unprivileged. -->
 	<key>UserName</key>
 	<string>nobody</string>

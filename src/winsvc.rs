@@ -2,7 +2,6 @@
 
 use std::{
     ffi::OsString,
-    path::PathBuf,
     process::ExitCode,
     sync::{Arc, OnceLock},
     time::Duration,
@@ -19,15 +18,17 @@ use windows_service::{
     service_dispatcher,
 };
 
+use crate::config::Config;
+
 const SERVICE_NAME: &str = "ipv6who";
 
-static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+static CONFIG: OnceLock<Config> = OnceLock::new();
 
 define_windows_service!(ffi_service_main, service_main);
 
 /// Hands the main thread to the SCM dispatcher; returns when the service stops.
-pub fn run(config_path: PathBuf) -> ExitCode {
-    let _ = CONFIG_PATH.set(config_path);
+pub fn run(config: Config) -> ExitCode {
+    let _ = CONFIG.set(config);
     match service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -55,25 +56,20 @@ fn run_service() -> windows_service::Result<()> {
         _ => ServiceControlHandlerResult::NotImplemented,
     })?;
 
-    let path = CONFIG_PATH.get().expect("config path set before dispatch");
-    let code = match crate::load_config(path) {
-        Some(config) => {
-            set_status(
-                &status,
-                ServiceState::Running,
-                ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
-                ServiceExitCode::NO_ERROR,
-            )?;
-            let shutdown = async move { stop.notified().await };
-            match crate::runtime().and_then(|rt| rt.block_on(crate::serve(config, shutdown))) {
-                Ok(()) => None,
-                Err(e) => {
-                    tracing::error!("{e}");
-                    Some(1)
-                }
-            }
+    let config = CONFIG.get().expect("config set before dispatch").clone();
+    set_status(
+        &status,
+        ServiceState::Running,
+        ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+        ServiceExitCode::NO_ERROR,
+    )?;
+    let shutdown = async move { stop.notified().await };
+    let code = match crate::runtime().and_then(|rt| rt.block_on(crate::serve(config, shutdown))) {
+        Ok(()) => None,
+        Err(e) => {
+            tracing::error!("{e}");
+            Some(1)
         }
-        None => Some(2),
     };
     let exit = code.map_or(ServiceExitCode::NO_ERROR, ServiceExitCode::ServiceSpecific);
     set_status(
