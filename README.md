@@ -177,6 +177,39 @@ defaults. Check a file with `ipv6who --config <path> --check-config`, list
 what the OS reports with `ipv6who --dump-addresses`, and set `RUST_LOG=debug`
 to log rejected connections.
 
+## Packaging
+
+`ipv6who.spec` builds a Fedora RPM with vendored crates: Source0 is the GitHub
+tag tarball for the spec's `Version`, Source1 is made by `dist/vendor.sh`.
+[`.copr/Makefile`](.copr/Makefile) produces the SRPM from a git checkout, so
+COPR can build straight from the repository. In the COPR project, add a
+package with source type **SCM**:
+
+| Field | Value |
+| --- | --- |
+| Clone URL | `https://github.com/zhangchaosd/ipv6who.git` |
+| Committish | `main` (or a tag such as `v0.1.0`) |
+| Subdirectory | *(empty)* |
+| Spec File | `ipv6who.spec` |
+| SRPM build method | `make_srpm` |
+
+Enable *Auto-rebuild* on the package, then in COPR open *Settings →
+Integrations*, copy the GitHub webhook URL, and add it in the GitHub repository
+under *Settings → Webhooks → Add webhook* (content type
+`application/json`, events: *Just the push event*). Each push then rebuilds
+the package.
+
+The tarball is downloaded from the tag, so to release: bump `Version` in
+`Cargo.toml` and `ipv6who.spec`, add a `%changelog` entry, push the tag
+`v<version>` first and then the commit to `main`. A push whose spec names an
+untagged version fails at the download step. To test locally on Fedora
+(installs build tools with dnf, so run as root):
+
+```sh
+sudo make -f .copr/Makefile srpm outdir=/tmp/out spec=ipv6who.spec
+rpmbuild --rebuild /tmp/out/ipv6who-*.src.rpm
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
