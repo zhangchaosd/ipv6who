@@ -134,6 +134,7 @@ by all local users on every OS; keep that in mind if you set a `token`.
     }
   ],
   "system": {
+    "hostname": "server1",
     "os": "linux",
     "name": "Fedora Linux 44 (Cloud Edition)",
     "version": "44",
@@ -145,7 +146,7 @@ by all local users on every OS; keep that in mind if you set a `token`.
 - `address` / `interface` / `type` describe the preferred address: not
   deprecated, most stable `type` (`static` > `dynamic` > `temporary`), longest
   preferred lifetime.
-- `system` describes the host OS: `os` (`linux`, `macos`, `windows`), a
+- `system` describes the host: `hostname`, `os` (`linux`, `macos`, `windows`), a
   readable `name` such as `Fedora Linux 44 (Cloud Edition)`, `macOS 27.0.1`
   or `Windows 11 Pro 24H2`, `version` and CPU `arch`.
 - Lifetimes are in seconds; `null` means infinite.

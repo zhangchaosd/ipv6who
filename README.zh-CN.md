@@ -127,6 +127,7 @@ Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
     }
   ],
   "system": {
+    "hostname": "server1",
     "os": "linux",
     "name": "Fedora Linux 44 (Cloud Edition)",
     "version": "44",
@@ -137,7 +138,7 @@ Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 
 - `address` / `interface` / `type` 描述首选地址：优先未弃用的地址，其次是更稳定的类型
   （`static` > `dynamic` > `temporary`），再其次是剩余首选生存期更长的地址。
-- `system` 描述主机操作系统：`os`（`linux`、`macos`、`windows`）、可读名称 `name`
+- `system` 描述主机：主机名 `hostname`、`os`（`linux`、`macos`、`windows`）、可读名称 `name`
   （如 `Fedora Linux 44 (Cloud Edition)`、`macOS 27.0.1`、`Windows 11 Pro 24H2`）、`version` 和 CPU 架构 `arch`。
 - 生存期单位为秒，`null` 表示永久。
 - 没有符合条件的地址时返回 `503`；配置了 token 但请求缺失或错误时返回 `401`。

@@ -5,6 +5,7 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemInfo {
+    pub hostname: Option<String>,
     /// OS family: "linux", "macos" or "windows".
     pub os: &'static str,
     /// Human-readable OS name and version.
@@ -17,11 +18,49 @@ pub struct SystemInfo {
 pub fn detect() -> SystemInfo {
     let (name, version) = os::detect();
     SystemInfo {
+        hostname: hostname(),
         os: std::env::consts::OS,
         name,
         version,
         arch: std::env::consts::ARCH,
     }
+}
+
+/// The host name; read on each call because it can change at runtime
+/// (macOS renames the host when it moves between networks).
+#[cfg(unix)]
+pub fn hostname() -> Option<String> {
+    let mut buf = [0u8; 256];
+    // SAFETY: buf is writable for its full length.
+    if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    let name = String::from_utf8_lossy(&buf[..len]).into_owned();
+    (!name.is_empty()).then_some(name)
+}
+
+/// The host name; read on each call because it can change at runtime.
+#[cfg(windows)]
+pub fn hostname() -> Option<String> {
+    use windows_sys::Win32::System::SystemInformation::{
+        ComputerNamePhysicalDnsHostname, GetComputerNameExW,
+    };
+    let mut buf = [0u16; 256];
+    let mut len = buf.len() as u32;
+    // SAFETY: len is the buffer capacity in UTF-16 units.
+    if unsafe { GetComputerNameExW(ComputerNamePhysicalDnsHostname, buf.as_mut_ptr(), &mut len) }
+        == 0
+    {
+        return None;
+    }
+    let name = String::from_utf16_lossy(&buf[..len as usize]);
+    (!name.is_empty()).then_some(name)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn hostname() -> Option<String> {
+    None
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
@@ -186,6 +225,7 @@ mod tests {
     fn detect_returns_a_name() {
         let info = detect();
         assert!(!info.name.is_empty());
+        assert!(info.hostname.is_some_and(|h| !h.is_empty()));
         assert_eq!(info.os, std::env::consts::OS);
     }
 

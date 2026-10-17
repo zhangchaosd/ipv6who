@@ -63,6 +63,15 @@ struct AppState {
     system: sysinfo::SystemInfo,
 }
 
+impl AppState {
+    fn system(&self) -> sysinfo::SystemInfo {
+        sysinfo::SystemInfo {
+            hostname: sysinfo::hostname(),
+            ..self.system.clone()
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     if let Err(e) = init_tracing(cli.log_file.as_deref()) {
@@ -286,7 +295,7 @@ async fn get_ipv6(State(state): State<Arc<AppState>>) -> Response {
             Json(json!({
                 "error": "no global IPv6 address found",
                 "addresses": [],
-                "system": state.system,
+                "system": state.system(),
             })),
         )
             .into_response();
@@ -296,7 +305,7 @@ async fn get_ipv6(State(state): State<Arc<AppState>>) -> Response {
         "interface": best.interface,
         "type": best.kind,
         "addresses": found,
-        "system": state.system,
+        "system": state.system(),
     }))
     .into_response()
 }
