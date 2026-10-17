@@ -7,7 +7,7 @@
 %global cargo_install_lib 0
 
 Name:           ipv6who
-Version:        0.3.0
+Version:        0.3.1
 Release:        1%{?dist}
 Summary:        HTTP service that reports the host's global IPv6 address
 
@@ -67,6 +67,11 @@ sed -i 's|/usr/local/bin/|%{_bindir}/|' %{buildroot}%{_unitdir}/%{name}.service
 %{_unitdir}/%{name}.service
 
 %changelog
+* Sat Oct 17 2026 ipv6who contributors - 0.3.1-1
+- Windows: link the C runtime statically so the service starts without
+  the Visual C++ Redistributable
+- Log to stderr
+
 * Sat Oct 17 2026 ipv6who contributors - 0.3.0-1
 - Configure everything on the command line; drop the config file
 
