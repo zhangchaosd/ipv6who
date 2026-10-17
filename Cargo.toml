@@ -29,7 +29,14 @@ libc = "0.2.190"
 
 [target."cfg(windows)".dependencies]
 windows-service = "0.8.1"
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_Registry"] }
 
 [dev-dependencies]
 tokio = { version = "1.53.3", features = ["io-util", "macros", "rt"] }
+
+# Optimized, stripped binaries for the CI release artifacts.
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true

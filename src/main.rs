@@ -1,6 +1,7 @@
 mod addrs;
 mod allowlist;
 mod config;
+mod sysinfo;
 #[cfg(windows)]
 mod winsvc;
 
@@ -59,6 +60,7 @@ struct Cli {
 
 struct AppState {
     config: Config,
+    system: sysinfo::SystemInfo,
 }
 
 fn main() -> ExitCode {
@@ -172,7 +174,9 @@ async fn serve(config: Config, shutdown: impl Future<Output = ()>) -> io::Result
         tracing::warn!("`allow` is empty: every connection will be rejected");
     }
     let listen = config.listen.clone();
-    let app = router(Arc::new(AppState { config }));
+    let system = sysinfo::detect();
+    tracing::info!(system = %system.name, arch = system.arch, "starting");
+    let app = router(Arc::new(AppState { config, system }));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let mut servers = JoinSet::new();
@@ -279,7 +283,11 @@ async fn get_ipv6(State(state): State<Arc<AppState>>) -> Response {
     let Some(best) = found.first() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "no global IPv6 address found", "addresses": [] })),
+            Json(json!({
+                "error": "no global IPv6 address found",
+                "addresses": [],
+                "system": state.system,
+            })),
         )
             .into_response();
     };
@@ -288,6 +296,7 @@ async fn get_ipv6(State(state): State<Arc<AppState>>) -> Response {
         "interface": best.interface,
         "type": best.kind,
         "addresses": found,
+        "system": state.system,
     }))
     .into_response()
 }

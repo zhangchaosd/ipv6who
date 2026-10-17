@@ -132,13 +132,22 @@ by all local users on every OS; keep that in mind if you set a `token`.
       "preferred_lifetime": null,
       "valid_lifetime": null
     }
-  ]
+  ],
+  "system": {
+    "os": "linux",
+    "name": "Fedora Linux 44 (Cloud Edition)",
+    "version": "44",
+    "arch": "x86_64"
+  }
 }
 ```
 
 - `address` / `interface` / `type` describe the preferred address: not
   deprecated, most stable `type` (`static` > `dynamic` > `temporary`), longest
   preferred lifetime.
+- `system` describes the host OS: `os` (`linux`, `macos`, `windows`), a
+  readable `name` such as `Fedora Linux 44 (Cloud Edition)`, `macOS 27.0.1`
+  or `Windows 11 Pro 24H2`, `version` and CPU `arch`.
 - Lifetimes are in seconds; `null` means infinite.
 - Returns `503` when no matching address exists, `401` when a token is
   configured and missing or wrong.

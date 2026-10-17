@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -123,3 +125,72 @@ jobs:
           sc.exe delete ipv6who
           Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
           if (Get-Process ipv6who -ErrorAction SilentlyContinue) { throw 'still running' }
+
+  # Release artifacts. Every run uploads them to the workflow run; a pushed
+  # v* tag also publishes them as a GitHub Release.
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux-x86_64, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-24.04-arm, label: linux-aarch64, target: aarch64-unknown-linux-musl }
+          - { os: macos-latest, label: macos-universal, target: aarch64-apple-darwin x86_64-apple-darwin }
+          - { os: windows-latest, label: windows-x86_64, target: x86_64-pc-windows-msvc }
+          - { os: windows-latest, label: windows-aarch64, target: aarch64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: |
+          command -v rustup >/dev/null || { curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"; }
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install stable --profile minimal
+          for t in ${{ matrix.target }}; do rustup target add "$t"; done
+          if [[ "${{ matrix.target }}" == *musl ]]; then sudo apt-get update -q && sudo apt-get install -yq musl-tools; fi
+      - name: Build
+        run: |
+          for t in ${{ matrix.target }}; do cargo build --locked --profile dist --target "$t"; done
+          case "${{ matrix.label }}" in
+            macos-universal)
+              lipo -create -output ipv6who target/aarch64-apple-darwin/dist/ipv6who target/x86_64-apple-darwin/dist/ipv6who
+              lipo -info ipv6who ;;
+            windows-*) cp "target/${{ matrix.target }}/dist/ipv6who.exe" ipv6who.exe ;;
+            *) cp "target/${{ matrix.target }}/dist/ipv6who" ipv6who ;;
+          esac
+      - name: Smoke test
+        if: matrix.label != 'windows-aarch64'
+        run: |
+          bin=./ipv6who; [[ -f ipv6who.exe ]] && bin=./ipv6who.exe
+          file "$bin" || true
+          "$bin" --version
+          "$bin" --dump-addresses > /dev/null
+      - name: Package
+        run: |
+          bin=ipv6who; [[ -f ipv6who.exe ]] && bin=ipv6who.exe
+          .github/ci/package.sh "$bin" "${{ matrix.label }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipv6who-${{ matrix.label }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, install-linux, install-macos, install-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
