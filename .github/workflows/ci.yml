@@ -175,6 +175,13 @@ jobs:
             windows-*) cp "target/${{ matrix.target }}/dist/ipv6who.exe" ipv6who.exe ;;
             *) cp "target/${{ matrix.target }}/dist/ipv6who" ipv6who ;;
           esac
+      - name: No Visual C++ runtime dependency
+        if: startsWith(matrix.label, 'windows-')
+        run: |
+          if grep -aqi 'vcruntime140\|api-ms-win-crt-' ipv6who.exe; then
+            echo "ipv6who.exe imports the Visual C++ runtime; it must be linked statically"
+            exit 1
+          fi
       - name: Smoke test
         if: matrix.label != 'windows-aarch64'
         run: |
