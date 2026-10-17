@@ -117,8 +117,11 @@ jobs:
       - name: Add a test address
         shell: pwsh
         run: |
-          $nic = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1
-          New-NetIPAddress -InterfaceIndex $nic.ifIndex -IPAddress 2001:db8::1 -PrefixLength 64 | Out-Null
+          # Pick an interface that actually has IPv6 bound and connected.
+          $if = Get-NetIPInterface -AddressFamily IPv6 -ConnectionState Connected |
+              Where-Object InterfaceAlias -notlike 'Loopback*' | Select-Object -First 1
+          Write-Host "adding 2001:db8::1 to $($if.InterfaceAlias)"
+          New-NetIPAddress -InterfaceIndex $if.ifIndex -IPAddress 2001:db8::1 -PrefixLength 64 | Out-Null
       - name: Verify
         shell: pwsh
         run: .github/ci/verify-windows.ps1
