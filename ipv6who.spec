@@ -7,7 +7,7 @@
 %global cargo_install_lib 0
 
 Name:           ipv6who
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        HTTP service that reports the host's global IPv6 address
 
@@ -70,5 +70,10 @@ install -Dpm 0644 dist/config.toml %{buildroot}%{_sysconfdir}/%{name}/config.tom
 %config(noreplace) %{_sysconfdir}/%{name}/config.toml
 
 %changelog
+* Sat Oct 17 2026 ipv6who contributors - 0.2.0-1
+- Support macOS and Windows
+- Report hostname and OS name, version and architecture in /v1/ipv6
+- Add --dump-addresses and --log-file
+
 * Thu Oct 15 2026 ipv6who contributors - 0.1.0-1
 - Initial package
