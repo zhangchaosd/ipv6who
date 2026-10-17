@@ -18,12 +18,12 @@ definition (see [Options](#options)). The defaults listen on port 8066 and only
 accept clients on this machine, so add the networks that may query the service
 to `--allow`, and open TCP port 8066 in the firewall if clients are remote.
 
-On Linux and macOS, download the prebuilt binary from the latest release and
-run it as a service under your own user: no root and no Rust toolchain needed.
-On Windows, build from source with Rust 1.88 or newer
-([rustup](https://rustup.rs)) and install it as a system service;
-administrator rights are only needed to copy files and register it, and the
-service itself runs as the unprivileged `LocalService` account.
+Every platform downloads a prebuilt binary from the
+[latest release](https://github.com/zhangchaosd/ipv6who/releases/latest); no
+Rust toolchain needed. On Linux and macOS it runs as a service under your own
+user, without root. On Windows it is a system service: administrator rights
+are needed once to register it, and it runs as the unprivileged `LocalService`
+account.
 
 ### Linux (systemd user service)
 
@@ -123,15 +123,15 @@ rm ~/.local/bin/ipv6who ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.pli
 
 ### Windows (service)
 
-Install Rust with `rustup-init.exe` (let it install the Visual Studio Build
-Tools) and Git, then run in PowerShell **as Administrator**:
+The binary goes to `C:\Program Files\ipv6who` and runs as a Windows service
+under the built-in `LocalService` account. Run in PowerShell **as
+Administrator** (Windows 10 1803 or later, for the bundled `curl.exe` and `tar.exe`):
 
 ```powershell
-git clone https://github.com/zhangchaosd/ipv6who.git
-cd ipv6who
-cargo build --release --locked
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
 New-Item -ItemType Directory -Force "C:\Program Files\ipv6who", "C:\ProgramData\ipv6who\logs" | Out-Null
-Copy-Item target\release\ipv6who.exe "C:\Program Files\ipv6who\"
+curl.exe -fsSLo "$env:TEMP\ipv6who.zip" "https://github.com/zhangchaosd/ipv6who/releases/latest/download/ipv6who-windows-$arch.zip"
+tar.exe -xf "$env:TEMP\ipv6who.zip" -C "C:\Program Files\ipv6who" --strip-components=1 "ipv6who-windows-$arch/ipv6who.exe"
 icacls C:\ProgramData\ipv6who\logs /grant "*S-1-5-19:(OI)(CI)M"
 New-Service -Name ipv6who -StartupType Automatic -BinaryPathName '"C:\Program Files\ipv6who\ipv6who.exe" --service --listen [::]:8066 --allow ::1/128,127.0.0.0/8 --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
 sc.exe config ipv6who obj= "NT AUTHORITY\LocalService"
@@ -157,6 +157,12 @@ Stop-Service ipv6who
 sc.exe delete ipv6who
 Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 ```
+
+### Build from source
+
+With Rust 1.88 or newer ([rustup](https://rustup.rs)):
+`cargo build --release --locked`, then use `target/release/ipv6who` in place of
+the downloaded binary in the steps above.
 
 ## API
 

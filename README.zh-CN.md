@@ -13,10 +13,9 @@
 没有配置文件：所有设置都通过服务定义里的命令行参数传入（见[参数](#参数)）。默认监听 8066 端口，
 只接受本机访问；请把允许查询的网段加入 `--allow`，如果客户端在其他机器上，还需要在防火墙中放行 TCP 8066 端口。
 
-Linux 和 macOS 上直接从最新 release 下载预编译二进制，以当前用户身份作为服务运行：
-不需要 root，也不需要 Rust 工具链。Windows 上使用 Rust 1.88 或更新版本
-（[rustup](https://rustup.rs)）从源码构建并安装为系统服务；管理员权限只用于复制文件和注册服务，
-服务本身以非特权的 `LocalService` 账户运行。
+所有平台都直接从[最新 release](https://github.com/zhangchaosd/ipv6who/releases/latest) 下载预编译二进制，
+不需要 Rust 工具链。Linux 和 macOS 上以当前用户身份作为服务运行，不需要 root；Windows 上注册为系统服务，
+只在注册时需要一次管理员权限，服务本身以非特权的 `LocalService` 账户运行。
 
 ### Linux（systemd 用户服务）
 
@@ -113,15 +112,14 @@ rm ~/.local/bin/ipv6who ~/Library/LaunchAgents/io.github.zhangchaosd.ipv6who.pli
 
 ### Windows（服务）
 
-用 `rustup-init.exe` 安装 Rust（按提示安装 Visual Studio Build Tools），并安装 Git，
-然后**以管理员身份**打开 PowerShell 执行：
+二进制安装到 `C:\Program Files\ipv6who`，注册为 Windows 服务，以内置的 `LocalService` 账户运行。
+**以管理员身份**打开 PowerShell 执行（需要 Windows 10 1803 或更新版本，以使用系统自带的 `curl.exe` 和 `tar.exe`）：
 
 ```powershell
-git clone https://github.com/zhangchaosd/ipv6who.git
-cd ipv6who
-cargo build --release --locked
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
 New-Item -ItemType Directory -Force "C:\Program Files\ipv6who", "C:\ProgramData\ipv6who\logs" | Out-Null
-Copy-Item target\release\ipv6who.exe "C:\Program Files\ipv6who\"
+curl.exe -fsSLo "$env:TEMP\ipv6who.zip" "https://github.com/zhangchaosd/ipv6who/releases/latest/download/ipv6who-windows-$arch.zip"
+tar.exe -xf "$env:TEMP\ipv6who.zip" -C "C:\Program Files\ipv6who" --strip-components=1 "ipv6who-windows-$arch/ipv6who.exe"
 icacls C:\ProgramData\ipv6who\logs /grant "*S-1-5-19:(OI)(CI)M"
 New-Service -Name ipv6who -StartupType Automatic -BinaryPathName '"C:\Program Files\ipv6who\ipv6who.exe" --service --listen [::]:8066 --allow ::1/128,127.0.0.0/8 --log-file C:\ProgramData\ipv6who\logs\ipv6who.log'
 sc.exe config ipv6who obj= "NT AUTHORITY\LocalService"
@@ -147,6 +145,11 @@ Stop-Service ipv6who
 sc.exe delete ipv6who
 Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 ```
+
+### 从源码构建
+
+使用 Rust 1.88 或更新版本（[rustup](https://rustup.rs)）执行 `cargo build --release --locked`，
+然后在上面的步骤中用 `target/release/ipv6who` 代替下载的二进制。
 
 ## 接口
 
