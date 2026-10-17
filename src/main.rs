@@ -7,7 +7,7 @@ mod winsvc;
 
 use std::{
     future::Future,
-    io,
+    io::{self, IsTerminal},
     net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -118,7 +118,10 @@ fn init_tracing(log_file: Option<&Path>) -> io::Result<()> {
         // journald adds its own timestamps.
         builder.without_time().with_ansi(false).init();
     } else {
-        builder.init();
+        // No color codes when stderr is redirected to a file.
+        let color =
+            io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
+        builder.with_ansi(color).init();
     }
     Ok(())
 }

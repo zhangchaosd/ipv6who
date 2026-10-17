@@ -13,40 +13,65 @@ rtnetlink on Linux, `getifaddrs` and the in6 ioctls on macOS,
 
 ## Install
 
-Build from source with Rust 1.88 or newer ([rustup](https://rustup.rs)), then
-install it as a service. On every OS the service runs as an unprivileged
-account; administrator rights are only needed to copy files and register it.
-After editing the config, restart the service.
+On Linux, download the prebuilt static binary (x86_64 or aarch64) and run it
+as a systemd user service: no root and no Rust toolchain needed. On macOS and
+Windows, build from source with Rust 1.88 or newer
+([rustup](https://rustup.rs)) and install it as a system service; administrator
+rights are only needed to copy files and register it, and the service itself
+runs as an unprivileged account. After editing the config, restart the service.
 
 The default config only accepts clients on this machine: add the networks
 that may query the service to `allow` (see [Configuration](#configuration)),
 and open TCP port 8066 in the firewall if clients are remote.
 
-### Linux (systemd)
+### Linux (systemd user service)
+
+Everything lives in `~/ipv6who` and runs as your own user:
 
 ```sh
-git clone https://github.com/zhangchaosd/ipv6who.git
-cd ipv6who
-cargo build --release --locked
-sudo install -Dm755 target/release/ipv6who /usr/local/bin/ipv6who
-sudo install -Dm644 dist/config.toml /etc/ipv6who/config.toml
-sudo install -Dm644 dist/ipv6who.service /etc/systemd/system/ipv6who.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now ipv6who
+mkdir -p ~/ipv6who && cd ~/ipv6who
+curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/download/v0.2.0/ipv6who-0.2.0-linux-$(uname -m).tar.gz | tar -xz --strip-components=1 ipv6who-0.2.0-linux-$(uname -m)/ipv6who
+cat > config.toml <<'EOF'
+listen = ["[::]:8066"]
+# Client networks allowed to query the service; add your LAN or prefix here.
+allow = ["::1/128", "127.0.0.0/8"]
+EOF
+cat > ipv6who.service <<'EOF'
+[Unit]
+Description=Report this host's global IPv6 address over HTTP
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ipv6who
+ExecStart=%h/ipv6who/ipv6who --config %h/ipv6who/config.toml
+Environment=NO_COLOR=1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StandardOutput=append:%h/ipv6who/ipv6who.log
+StandardError=append:%h/ipv6who/ipv6who.log
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user enable --now ~/ipv6who/ipv6who.service
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
-Config: `/etc/ipv6who/config.toml`. Restart: `sudo systemctl restart ipv6who`.
-Logs: `journalctl -u ipv6who`. Runs with `DynamicUser=yes`: a transient user
-with no capabilities in a sandbox that only allows TCP and netlink sockets.
+Edit `~/ipv6who/config.toml`, then `systemctl --user restart ipv6who`.
+Logs: `~/ipv6who/ipv6who.log`. To start at boot without logging in, run
+`loginctl enable-linger` (some systems require `sudo loginctl enable-linger $USER`).
 
 Uninstall:
 
 ```sh
-sudo systemctl disable --now ipv6who
-sudo rm -r /usr/local/bin/ipv6who /etc/systemd/system/ipv6who.service /etc/ipv6who
-sudo systemctl daemon-reload
+systemctl --user disable --now ipv6who
+rm -rf ~/ipv6who
 ```
+
+For a hardened system-wide service instead, see
+[dist/ipv6who.service](dist/ipv6who.service) (`DynamicUser=yes`).
 
 ### macOS (launchd)
 
@@ -108,8 +133,9 @@ sc.exe delete ipv6who
 Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 ```
 
-The config file must be readable by the service account, so it is readable
-by all local users on every OS; keep that in mind if you set a `token`.
+On macOS and Windows the config file must be readable by the service
+account, so it is readable by all local users; keep that in mind if you set a
+`token`.
 
 ## API
 

@@ -35,29 +35,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install (README steps)
+      - run: cargo build --release --locked
+      - name: Start the user service manager
         run: |
-          cargo build --release --locked
-          sudo install -Dm755 target/release/ipv6who /usr/local/bin/ipv6who
-          sudo install -Dm644 dist/config.toml /etc/ipv6who/config.toml
-          sudo install -Dm644 dist/ipv6who.service /etc/systemd/system/ipv6who.service
-          sudo systemctl daemon-reload
-          sudo systemctl enable --now ipv6who
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          for _ in $(seq 1 30); do [ -S "/run/user/$(id -u)/bus" ] && break; sleep 1; done
+      - name: Install (README steps, local build instead of the download)
+        run: .github/ci/readme-linux.sh target/release/ipv6who
       - name: Add a test address
         run: |
           sudo ip link add ipv6who0 type dummy
           sudo ip link set ipv6who0 up
           sudo ip -6 addr add 2001:db8::1/64 dev ipv6who0 nodad
       - name: Verify
-        run: .github/ci/verify-unix.sh ipv6who "$(hostname -I | awk '{print $1}')"
+        run: .github/ci/verify-unix.sh "$USER" "$(hostname -I | awk '{print $1}')"
       - name: Logs
         if: always()
-        run: sudo journalctl -u ipv6who --no-pager
+        run: cat -v ~/ipv6who/ipv6who.log || true
       - name: Uninstall (README steps)
         run: |
-          sudo systemctl disable --now ipv6who
-          sudo rm -r /usr/local/bin/ipv6who /etc/systemd/system/ipv6who.service /etc/ipv6who
-          sudo systemctl daemon-reload
+          systemctl --user disable --now ipv6who
+          rm -rf ~/ipv6who
           ! pgrep -x ipv6who
 
   install-macos:

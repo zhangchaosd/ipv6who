@@ -10,37 +10,61 @@
 
 ## 安装
 
-使用 Rust 1.88 或更新版本（[rustup](https://rustup.rs)）从源码构建，然后安装为系统服务。
-在所有系统上服务都以非特权账户运行，管理员权限只用于复制文件和注册服务。修改配置后需要重启服务。
+Linux 上直接下载预编译的静态二进制（x86_64 或 aarch64），以 systemd 用户服务运行：
+不需要 root，也不需要 Rust 工具链。macOS 和 Windows 上使用 Rust 1.88 或更新版本
+（[rustup](https://rustup.rs)）从源码构建并安装为系统服务；管理员权限只用于复制文件和注册服务，
+服务本身以非特权账户运行。修改配置后需要重启服务。
 
 默认配置只接受本机访问：把允许查询的网段加入 `allow`（见[配置](#配置)），
 如果客户端在其他机器上，还需要在防火墙中放行 TCP 8066 端口。
 
-### Linux（systemd）
+### Linux（systemd 用户服务）
+
+所有文件都放在 `~/ipv6who` 目录下，以当前用户身份运行：
 
 ```sh
-git clone https://github.com/zhangchaosd/ipv6who.git
-cd ipv6who
-cargo build --release --locked
-sudo install -Dm755 target/release/ipv6who /usr/local/bin/ipv6who
-sudo install -Dm644 dist/config.toml /etc/ipv6who/config.toml
-sudo install -Dm644 dist/ipv6who.service /etc/systemd/system/ipv6who.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now ipv6who
+mkdir -p ~/ipv6who && cd ~/ipv6who
+curl -fsSL https://github.com/zhangchaosd/ipv6who/releases/download/v0.2.0/ipv6who-0.2.0-linux-$(uname -m).tar.gz | tar -xz --strip-components=1 ipv6who-0.2.0-linux-$(uname -m)/ipv6who
+cat > config.toml <<'EOF'
+listen = ["[::]:8066"]
+# 允许查询的客户端网段，在这里加入你的局域网或前缀。
+allow = ["::1/128", "127.0.0.0/8"]
+EOF
+cat > ipv6who.service <<'EOF'
+[Unit]
+Description=Report this host's global IPv6 address over HTTP
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ipv6who
+ExecStart=%h/ipv6who/ipv6who --config %h/ipv6who/config.toml
+Environment=NO_COLOR=1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StandardOutput=append:%h/ipv6who/ipv6who.log
+StandardError=append:%h/ipv6who/ipv6who.log
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user enable --now ~/ipv6who/ipv6who.service
 curl -s 'http://[::1]:8066/v1/ipv6'
 ```
 
-配置：`/etc/ipv6who/config.toml`。重启：`sudo systemctl restart ipv6who`。
-日志：`journalctl -u ipv6who`。服务通过 `DynamicUser=yes` 运行：由 systemd 临时分配一个没有任何
-capability 的用户，沙箱只允许 TCP 和 netlink 套接字。
+编辑 `~/ipv6who/config.toml` 后执行 `systemctl --user restart ipv6who`。
+日志：`~/ipv6who/ipv6who.log`。如需开机后无需登录即自动运行，执行 `loginctl enable-linger`
+（部分系统需要 `sudo loginctl enable-linger $USER`）。
 
 卸载：
 
 ```sh
-sudo systemctl disable --now ipv6who
-sudo rm -r /usr/local/bin/ipv6who /etc/systemd/system/ipv6who.service /etc/ipv6who
-sudo systemctl daemon-reload
+systemctl --user disable --now ipv6who
+rm -rf ~/ipv6who
 ```
+
+如需加固的系统级服务，可参考 [dist/ipv6who.service](dist/ipv6who.service)（`DynamicUser=yes`）。
 
 ### macOS（launchd）
 
@@ -102,7 +126,7 @@ sc.exe delete ipv6who
 Remove-Item -Recurse -Force "C:\Program Files\ipv6who", C:\ProgramData\ipv6who
 ```
 
-由于服务账户需要读取配置文件，在所有系统上该文件对本机所有用户可读；如果设置了 `token`，请注意这一点。
+在 macOS 和 Windows 上，由于服务账户需要读取配置文件，该文件对本机所有用户可读；如果设置了 `token`，请注意这一点。
 
 ## 接口
 
